@@ -18,6 +18,7 @@ const w = window.websim || {};
 export default w;
 // Export common methods if destructured
 export const getProject = w.getProject;
+export const getCurrentProject = w.getCurrentProject;
 export const getCurrentUser = w.getCurrentUser;
 export const upload = w.upload;
 export const collection = w.collection;

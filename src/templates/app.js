@@ -138,6 +138,7 @@ router.get('/api/project', async (_req, res) => {
         res.json({
             id: postId || 'local-dev',
             title: subredditName ? \`r/\${subredditName}\` : 'Devvit Project',
+            current_version: '1',
             owner: { 
                 id: subredditName || 'community',
                 username: subredditName || 'community' 

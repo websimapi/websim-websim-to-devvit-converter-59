@@ -43,7 +43,10 @@ export const websimStubsJs = `
                     const res = await fetch('/api/project');
                     if (res.ok) return await res.json();
                 } catch(e) { console.warn("[Polyfill] getProject failed:", e); }
-                return { id: 'local', title: 'Reddit Game', owner: { username: 'unknown' } };
+                return { id: 'local', title: 'Reddit Game', current_version: '1', owner: { username: 'unknown' } };
+            },
+            getCurrentProject: async () => {
+                return window.websim.getProject();
             },
             getCreator: async () => {
                 try {
