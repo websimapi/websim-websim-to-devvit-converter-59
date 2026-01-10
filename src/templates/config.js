@@ -57,7 +57,9 @@ export const generateDevvitJson = (slug, entrypoints) => JSON.stringify({
       "enable": true,
       "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
     },
-    "http": true
+    "http": {
+      "allowedDomains": ["*"]
+    }
   },
   "triggers": {
     "onAppInstall": "/internal/onInstall"
