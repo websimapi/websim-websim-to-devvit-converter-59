@@ -26,12 +26,15 @@ addPaymentHandler({
         if (order.status === 'PAID') {
             try {
                 // Determine credits from SKU (e.g. tip_5 -> 5)
-                const sku = order.products[0]?.sku || '';
+                const product = order.products && order.products[0];
+                const sku = product ? product.sku : '';
                 const amount = parseInt(sku.replace('tip_', '')) || 0;
                 
                 if (amount > 0 && ctx.userId && ctx.postId) {
                     // Record global stats
-                    await ctx.redis.incrBy(\`tips:\${ctx.postId}:\${ctx.userId}\`, amount);
+                    // Note: Using safer string concatenation for Redis keys to avoid syntax issues in generated code
+                    const tipKey = \`tips:\${ctx.postId}:\${ctx.userId}\`;
+                    await ctx.redis.incrBy(tipKey, amount);
                     
                     // Post a "Tip Comment" automatically
                     const comment = await ctx.reddit.submitComment({
@@ -40,9 +43,11 @@ addPaymentHandler({
                     });
                     
                     // Mark this comment as a tip in Redis so we can hydrate it later
-                    await ctx.redis.hSet(\`comment_metadata:\${comment.id}\`, {
+                    // We use an object for hSet to ensure fields are correctly mapped
+                    const metaKey = \`comment_metadata:\${comment.id}\`;
+                    await ctx.redis.hSet(metaKey, {
                         type: 'tip_comment',
-                        credits_spent: amount.toString()
+                        credits_spent: String(amount)
                     });
                 }
             } catch (e) {
@@ -123,6 +128,25 @@ async function fetchAllData() {
 router.get('/api/init', async (_req, res) => {
     const data = await fetchAllData();
     res.json(data);
+});
+
+// Polyfill Endpoint: Get Project/Context Info
+router.get('/api/project', async (_req, res) => {
+    try {
+        const { postId, subredditName, userId } = context;
+        // Map Devvit Context to WebSim Project Structure
+        res.json({
+            id: postId || 'local-dev',
+            title: subredditName ? \`r/\${subredditName}\` : 'Devvit Project',
+            owner: { 
+                id: subredditName || 'community',
+                username: subredditName || 'community' 
+            },
+            context: { postId, subredditName, userId }
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 router.get('/api/user', async (_req, res) => {

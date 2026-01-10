@@ -38,8 +38,23 @@ export const websimStubsJs = `
                 
                 return u;
             },
-            getProject: async () => ({ id: 'local', title: 'Reddit Game' }),
-            getCreator: async () => ({ id: 'owner', username: 'GameOwner' }),
+            getProject: async () => {
+                try {
+                    const res = await fetch('/api/project');
+                    if (res.ok) return await res.json();
+                } catch(e) { console.warn("[Polyfill] getProject failed:", e); }
+                return { id: 'local', title: 'Reddit Game', owner: { username: 'unknown' } };
+            },
+            getCreator: async () => {
+                try {
+                    const res = await fetch('/api/project');
+                    if (res.ok) {
+                        const data = await res.json();
+                        return data.owner;
+                    }
+                } catch(e) { console.warn("[Polyfill] getCreator failed:", e); }
+                return { id: 'owner', username: 'GameOwner' };
+            },
             
             // --- Commenting & Tipping Polyfill ---
             postComment: async (data) => {
