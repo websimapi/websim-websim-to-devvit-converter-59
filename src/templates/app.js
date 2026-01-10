@@ -313,11 +313,12 @@ router.post('/api/comments', async (req, res) => {
 
         console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
 
-        // Post as user using the imported reddit client
+        // [Fixed] Post as user using runAs: 'USER'
         // Requires "permissions": { "reddit": { "asUser": ["SUBMIT_COMMENT"] } } in devvit.json
         const result = await reddit.submitComment({
             id: targetId,
-            text: text
+            text: text,
+            runAs: 'USER'
         });
 
         res.json({ success: true, id: result.id });
@@ -442,7 +443,6 @@ router.post('/internal/createPost', async (req, res) => {
             return res.status(400).json({ error: 'Subreddit name is required (context/header missing)' });
         }
 
-        // Use the imported reddit client to post as the user (Moderator)
         const post = await reddit.submitCustomPost({
             title: '${safeTitle}',
             subredditName: subredditName,

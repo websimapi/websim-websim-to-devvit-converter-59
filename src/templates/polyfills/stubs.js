@@ -68,45 +68,65 @@ export const websimStubsJs = `
 
                 return new Promise((resolve) => {
                     // UI Injection for Comment/Tip Modal
-                    // We render a custom HTML modal to mimic the WebSim "staging" step
                     const modal = document.createElement('div');
-                    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:white;';
+                    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI\",Roboto,sans-serif;color:white;';
                     
                     const isTip = data.credits && data.credits > 0;
                     const prefilled = data.content || '';
                     
                     let innerHtml = '';
                     
+                    // Logic to map WebSim Credits to Reddit Gold SKUs
+                    let goldSku = 'tip_5_gold';
+                    let goldPrice = 5;
+                    let goldUsd = '$0.10';
+
                     if (isTip) {
-                        const amount = parseInt(data.credits) || 0;
-                        // Suggest nearest standard tier
-                        const tier = [5, 25, 50, 100].reduce((prev, curr) => Math.abs(curr - amount) < Math.abs(prev - amount) ? curr : prev);
+                        const c = data.credits;
+                        if (c >= 750) { goldSku = 'tip_100_gold'; goldPrice = 100; goldUsd = '$2.00'; }
+                        else if (c >= 400) { goldSku = 'tip_50_gold'; goldPrice = 50; goldUsd = '$1.00'; }
+                        else if (c >= 200) { goldSku = 'tip_25_gold'; goldPrice = 25; goldUsd = '$0.50'; }
                         
                         innerHtml = \`
-                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:400px;text-align:center;border:1px solid #334155;box-shadow:0 10px 25px -5px rgba(0,0,0,0.5);">
-                                <h3 style="margin:0 0 16px 0;color:#ffd700;">💛 Support the Creator</h3>
-                                <p style="color:#cbd5e1;margin-bottom:24px;line-height:1.5;">
-                                    This app suggests a <strong>\${amount} Gold</strong> tip.
-                                </p>
-                                <div style="background:#334155;padding:16px;border-radius:8px;margin-bottom:24px;font-size:0.95rem;text-align:left;">
-                                    <div style="margin-bottom:8px;color:#94a3b8;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Instructions</div>
-                                    <ol style="margin:0;padding-left:20px;color:#e2e8f0;display:flex;flex-direction:column;gap:8px;">
-                                        <li>Close this window (tap 'Okay')</li>
-                                        <li>Tap the official <strong>Award/Tip</strong> button on the post</li>
-                                        <li>Select a <strong>\${tier} Gold</strong> award</li>
-                                    </ol>
+                            <div style="background:#1A1A1B;padding:0;border-radius:16px;width:90%;max-width:360px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.5);border:1px solid #343536;">
+                                <div style="padding:24px;text-align:center;">
+                                    <div style="width:64px;height:64px;background:#FFd700;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#8B7500;box-shadow:inset 0 -4px 0 rgba(0,0,0,0.2);">
+                                        🪙
+                                    </div>
+                                    <h3 style="margin:0 0 8px 0;font-size:1.25rem;">Support the Creator</h3>
+                                    <p style="color:#D7DADC;margin:0 0 24px 0;font-size:0.9rem;line-height:1.4;">
+                                        This action requires a tip. Swap your <strong>\${c} Credits</strong> for:
+                                    </p>
+                                    
+                                    <div style="background:#272729;border:1px solid #343536;border-radius:12px;padding:16px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;">
+                                        <div style="text-align:left;">
+                                            <div style="font-weight:700;font-size:1.1rem;color:#FFd700;">\${goldPrice} Gold</div>
+                                            <div style="font-size:0.8rem;color:#818384;">Approx. \${goldUsd}</div>
+                                        </div>
+                                        <div style=\"font-size:1.5rem;\">➔</div>
+                                    </div>
+                                    
+                                    <button id="ws-modal-pay" style="background:#D93A00;color:white;border:none;padding:12px 24px;border-radius:99px;font-weight:700;font-size:1rem;cursor:pointer;width:100%;transition:transform 0.1s;">
+                                        Purchase \${goldPrice} Gold
+                                    </button>
+                                    <button id="ws-modal-close" style="background:transparent;color:#818384;border:none;padding:12px;margin-top:8px;font-weight:600;cursor:pointer;width:100%;">
+                                        Cancel
+                                    </button>
                                 </div>
-                                <button id="ws-modal-close" style="background:#FF4500;color:white;border:none;padding:12px 24px;border-radius:99px;font-weight:bold;cursor:pointer;width:100%;font-size:1rem;">Okay, I'll do it!</button>
+                                <div style="background:#272729;padding:12px;font-size:0.75rem;color:#818384;text-align:center;border-top:1px solid #343536;">
+                                    Secured by Reddit Payments
+                                </div>
                             </div>
                         \`;
                     } else {
+                        // Standard Comment UI
                         innerHtml = \`
-                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:500px;display:flex;flex-direction:column;gap:16px;border:1px solid #334155;">
-                                <h3 style="margin:0;">💬 Post a Comment</h3>
-                                <textarea id="ws-comment-input" style="width:100%;height:100px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:white;padding:12px;font-family:inherit;resize:none;box-sizing:border-box;">\${prefilled}</textarea>
+                            <div style="background:#1A1A1B;padding:24px;border-radius:12px;width:90%;max-width:500px;display:flex;flex-direction:column;gap:16px;border:1px solid #343536;">
+                                <h3 style="margin:0;color:#D7DADC;">💬 Post a Comment</h3>
+                                <textarea id="ws-comment-input" style="width:100%;height:100px;background:#272729;border:1px solid #343536;border-radius:8px;color:white;padding:12px;font-family:inherit;font-size:1rem;resize:none;box-sizing:border-box;">\${prefilled}</textarea>
                                 <div style="display:flex;gap:10px;justify-content:flex-end;">
-                                    <button id="ws-modal-cancel" style="background:transparent;color:#94a3b8;border:none;padding:10px 16px;cursor:pointer;font-weight:600;">Cancel</button>
-                                    <button id="ws-modal-post" style="background:#FF4500;color:white;border:none;padding:10px 24px;border-radius:6px;font-weight:bold;cursor:pointer;">Post Comment</button>
+                                    <button id="ws-modal-cancel" style="background:transparent;color:#818384;border:none;padding:10px 16px;cursor:pointer;font-weight:600;">Cancel</button>
+                                    <button id="ws-modal-post" style="background:#D7DADC;color:#1A1A1B;border:none;padding:10px 24px;border-radius:99px;font-weight:bold;cursor:pointer;">Post Comment</button>
                                 </div>
                             </div>
                         \`;
@@ -120,7 +140,27 @@ export const websimStubsJs = `
                     if (isTip) {
                         modal.querySelector('#ws-modal-close').onclick = () => {
                             close();
-                            resolve({}); // Resolve gracefully even though we didn't mechanically transact
+                            resolve({ error: 'User cancelled' });
+                        };
+                        
+                        modal.querySelector('#ws-modal-pay').onclick = async () => {
+                            const btn = modal.querySelector('#ws-modal-pay');
+                            btn.innerHTML = '<span style=\"display:inline-block;animation:spin 1s linear infinite;\">↻</span> Processing...';
+                            btn.disabled = true;
+                            
+                            // SIMULATION DELAY
+                            await new Promise(r => setTimeout(r, 800));
+
+                            // Note: In a pure WebView without a Block wrapper, we cannot trigger 'payments.purchase' directly.
+                            // We rely on the user using the native UI in production, but for the game loop to continue,
+                            // we simulate a success here and inform the user.
+                            
+                            alert(`[Devvit Preview] In a real app, this would open the Gold payment sheet for SKU: \${goldSku}.\\n\\nFor this preview, we will simulate a successful transaction so you can see the game reaction!`);
+                            
+                            close();
+                            resolve({}); 
+                            // In a real implementation with a wrapper, you would use:
+                            // window.parent.postMessage({ type: 'trigger_payment', sku: goldSku }, '*');
                         };
                     } else {
                         const input = modal.querySelector('#ws-comment-input');
