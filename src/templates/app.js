@@ -206,7 +206,7 @@ router.get('/api/comments', async (req, res) => {
         // Transform to WebSim format
         const data = await Promise.all(comments.map(async (c) => {
             // Check for tip metadata
-            const meta = await redis.hGetAll(`comment_metadata:${c.id}`);
+            const meta = await redis.hGetAll(\`comment_metadata:\${c.id}\`);
             const isTip = meta && meta.type === 'tip_comment';
             
             return {
