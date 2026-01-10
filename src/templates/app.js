@@ -21,34 +21,37 @@ Devvit.configure({
 });
 
 // --- Payments Handler ---
+// Handles tip_X_gold products
 addPaymentHandler({
     fulfillOrder: async (order, ctx) => {
         if (order.status === 'PAID') {
             try {
-                // Determine credits from SKU (e.g. tip_5 -> 5)
                 const product = order.products && order.products[0];
                 const sku = product ? product.sku : '';
-                const amount = parseInt(sku.replace('tip_', '')) || 0;
+                
+                // SKU format: tip_25_gold
+                const match = sku.match(/tip_(\d+)_gold/);
+                const amount = match ? parseInt(match[1]) : 0;
                 
                 if (amount > 0 && ctx.userId && ctx.postId) {
-                    // Record global stats
-                    // Note: Using safer string concatenation for Redis keys to avoid syntax issues in generated code
                     const tipKey = \`tips:\${ctx.postId}:\${ctx.userId}\`;
                     await ctx.redis.incrBy(tipKey, amount);
                     
-                    // Post a "Tip Comment" automatically
-                    const comment = await ctx.reddit.submitComment({
-                        postId: ctx.postId,
-                        text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
-                    });
-                    
-                    // Mark this comment as a tip in Redis so we can hydrate it later
-                    // We use an object for hSet to ensure fields are correctly mapped
-                    const metaKey = \`comment_metadata:\${comment.id}\`;
-                    await ctx.redis.hSet(metaKey, {
-                        type: 'tip_comment',
-                        credits_spent: String(amount)
-                    });
+                    // Automated Thank You Comment
+                    try {
+                        const comment = await ctx.reddit.submitComment({
+                            postId: ctx.postId,
+                            text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
+                        });
+                        
+                        const metaKey = \`comment_metadata:\${comment.id}\`;
+                        await ctx.redis.hSet(metaKey, {
+                            type: 'tip_comment',
+                            credits_spent: String(amount)
+                        });
+                    } catch(err) {
+                        console.warn('Failed to post tip comment:', err);
+                    }
                 }
             } catch (e) {
                 console.error("Payment Fulfillment Error:", e);
@@ -225,16 +228,21 @@ router.get('/api/comments', async (req, res) => {
         const onlyTips = req.query.only_tips === 'true';
 
         // Get comments from Reddit
-        // Note: We fetch more items if we are filtering for tips to increase likelihood of finding them
         let comments = [];
         try {
-            comments = await reddit.getComments({
+            // reddit.getComments returns a Promise<Listing<Comment>>
+            const listing = await reddit.getComments({
                 postId: postId,
                 limit: onlyTips ? 100 : 50
             });
+            // Convert listing to array safely if it's iterable
+            comments = listing || [];
+            if (listing && typeof listing.all === 'function') {
+                 // Some versions of Devvit client expose .all()
+                 comments = await listing.all();
+            }
         } catch (e) {
             console.warn('Reddit API getComments failed:', e);
-            // Return empty on API failure to prevent crash
             comments = [];
         }
 
@@ -294,18 +302,16 @@ router.post('/api/comments', async (req, res) => {
         
         if (!postId) return res.status(400).json({ error: 'No Post Context' });
         
-        // Validate content is a string
         const text = typeof content === 'string' ? content : '';
         if (!text.trim()) {
             return res.status(400).json({ error: 'Comment content cannot be empty' });
         }
 
-        // submitComment expects postId for top-level, or parentId for replies
-        // If parentId is provided (t1_...), we use that as parent.
-        // If not, we use postId (t3_...).
+        // Use User Actions to post as the authenticated user
         const result = await reddit.submitComment({
-            postId: postId, 
-            text: text
+            postId: postId,
+            text: text,
+            runAs: 'USER' // Explicitly run as the user
         });
 
         res.json({ success: true, id: result.id });

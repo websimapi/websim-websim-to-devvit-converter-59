@@ -271,15 +271,10 @@ export default {
     zip.file("products.json", JSON.stringify({
         "$schema": "https://developers.reddit.com/schema/products.json",
         "products": [
-            { "sku": "tip_5", "displayName": "Bronze Tip", "price": 5, "metadata": { "credits": "5" } },
-            { "sku": "tip_25", "displayName": "Silver Tip", "price": 25, "metadata": { "credits": "25" } },
-            { "sku": "tip_50", "displayName": "Gold Tip", "price": 50, "metadata": { "credits": "50" } },
-            { "sku": "tip_100", "displayName": "Platinum Tip", "price": 100, "metadata": { "credits": "100" } },
-            { "sku": "tip_150", "displayName": "Diamond Tip", "price": 150, "metadata": { "credits": "150" } },
-            { "sku": "tip_250", "displayName": "Elite Tip", "price": 250, "metadata": { "credits": "250" } },
-            { "sku": "tip_500", "displayName": "Legendary Tip", "price": 500, "metadata": { "credits": "500" } },
-            { "sku": "tip_1000", "displayName": "Mythic Tip", "price": 1000, "metadata": { "credits": "1000" } },
-            { "sku": "tip_2500", "displayName": "Immortal Tip", "price": 2500, "metadata": { "credits": "2500" } }
+            { "sku": "tip_5_gold", "displayName": "Bronze Tip (5 Gold)", "price": 5, "metadata": { "credits": "5", "category": "tip" }, "accountingType": "INSTANT" },
+            { "sku": "tip_25_gold", "displayName": "Silver Tip (25 Gold)", "price": 25, "metadata": { "credits": "25", "category": "tip" }, "accountingType": "INSTANT" },
+            { "sku": "tip_50_gold", "displayName": "Gold Tip (50 Gold)", "price": 50, "metadata": { "credits": "50", "category": "tip" }, "accountingType": "INSTANT" },
+            { "sku": "tip_100_gold", "displayName": "Platinum Tip (100 Gold)", "price": 100, "metadata": { "credits": "100", "category": "tip" }, "accountingType": "INSTANT" }
         ]
     }, null, 2));
     zip.file(".gitignore", "node_modules\n.devvit\ndist"); 
