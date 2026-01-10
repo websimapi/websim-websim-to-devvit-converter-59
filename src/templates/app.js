@@ -222,18 +222,28 @@ router.get('/api/comments', async (req, res) => {
         const postId = context.postId;
         if (!postId) return res.json({ comments: { data: [], meta: {} } });
 
+        const onlyTips = req.query.only_tips === 'true';
+
         // Get comments from Reddit
+        // Note: We fetch more items if we are filtering for tips to increase likelihood of finding them
         const comments = await reddit.getComments({
             postId: postId,
-            limit: 50 // simplistic limit
+            limit: onlyTips ? 100 : 50
+        }).catch(e => {
+            console.warn('Reddit API getComments failed:', e);
+            return []; // Return empty on API failure (e.g. permissions) to prevent crash
         });
 
         // Transform to WebSim format
-        const data = await Promise.all(comments.map(async (c) => {
+        let data = await Promise.all(comments.map(async (c) => {
             // Check for tip metadata
-            const meta = await redis.hGetAll(\`comment_metadata:\${c.id}\`);
+            const metaKey = \`comment_metadata:\${c.id}\`;
+            const meta = await redis.hGetAll(metaKey);
             const isTip = meta && meta.type === 'tip_comment';
             
+            // Filter early if we only want tips
+            if (onlyTips && !isTip) return null;
+
             return {
                 comment: {
                     id: c.id,
@@ -245,7 +255,7 @@ router.get('/api/comments', async (req, res) => {
                         username: c.authorName,
                         avatar_url: '/_websim_avatar_/' + c.authorName
                     },
-                    reply_count: 0, // expensive to calc accurately in list
+                    reply_count: 0, 
                     created_at: c.createdAt.toISOString(),
                     parent_comment_id: c.parentId.startsWith('t1_') ? c.parentId : null,
                     card_data: isTip ? {
@@ -256,6 +266,9 @@ router.get('/api/comments', async (req, res) => {
             };
         }));
 
+        // Remove filtered items
+        data = data.filter(item => item !== null);
+
         res.json({
             comments: {
                 data: data,
@@ -264,8 +277,9 @@ router.get('/api/comments', async (req, res) => {
         });
 
     } catch (e) {
-        console.error('Fetch Comments Error:', e);
-        res.status(500).json({ error: e.message });
+        console.error('Fetch Comments Endpoint Error:', e);
+        // Return valid empty response on error to prevent client "Failed to fetch" crashes
+        res.json({ comments: { data: [], meta: {} } });
     }
 });
 

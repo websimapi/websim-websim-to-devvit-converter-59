@@ -10,10 +10,12 @@ export const websimStubsJs = `
         let url = input;
         if (typeof input === 'string') {
             // Intercept WebSim Comment API calls
-            // Matches: /api/v1/projects/{UUID}/comments...
-            if (input.match(/\\/api\\/v1\\/projects\\/[^/]+\\/comments/)) {
-                // console.log("[Polyfill] Intercepting Comment Fetch:", input);
-                return originalFetch('/api/comments', init);
+            // Matches: /api/v1/projects/{UUID}/comments... (Capture query params)
+            const commentMatch = input.match(/\\/api\\/v1\\/projects\\/[^/]+\\/comments(.*)/);
+            if (commentMatch) {
+                const query = commentMatch[1] || '';
+                // console.log("[Polyfill] Intercepting Comment Fetch:", input, "->", '/api/comments' + query);
+                return originalFetch('/api/comments' + query, init);
             }
         }
         return originalFetch(input, init);
