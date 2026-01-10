@@ -56,7 +56,8 @@ export const generateDevvitJson = (slug, entrypoints) => JSON.stringify({
     "reddit": {
       "enable": true,
       "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
-    }
+    },
+    "http": true
   },
   "triggers": {
     "onAppInstall": "/internal/onInstall"

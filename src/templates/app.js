@@ -314,11 +314,13 @@ router.post('/api/comments', async (req, res) => {
         console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
 
         // Requires "permissions": { "reddit": { "asUser": ["SUBMIT_COMMENT"] } } in devvit.json
-        // Note: With 'asUser' permission, requests are automatically scoped to the user if context is available.
-        // Explicit 'runAs' parameter is removed to avoid type errors.
+        // Note: With 'asUser' permission, we must explicitly pass runAs: 'USER' to post as the authenticated user.
+        // The user must have granted approval for this app.
         const result = await reddit.submitComment({
             id: targetId,
-            text: text
+            text: text,
+            // @ts-ignore - Explicitly cast as 'USER' for devvit runtime
+            runAs: 'USER'
         });
 
         res.json({ success: true, id: result.id });

@@ -148,19 +148,24 @@ export const websimStubsJs = `
                             btn.innerHTML = '<span style=\"display:inline-block;animation:spin 1s linear infinite;\">↻</span> Processing...';
                             btn.disabled = true;
                             
-                            // SIMULATION DELAY
-                            await new Promise(r => setTimeout(r, 800));
+                            // Post message to parent (if wrapped in Blocks) to trigger actual payment
+                            // This allows "Hotswap" if the user adds a Blocks wrapper
+                            window.parent.postMessage({ 
+                                type: 'trigger_payment', 
+                                sku: goldSku 
+                            }, '*');
 
-                            // Note: In a pure WebView without a Block wrapper, we cannot trigger 'payments.purchase' directly.
-                            // We rely on the user using the native UI in production, but for the game loop to continue,
-                            // we simulate a success here and inform the user.
+                            // SIMULATION DELAY (For pure Webview Preview)
+                            await new Promise(r => setTimeout(r, 1000));
                             
-                            alert(\`[Devvit Preview] In a real app, this would open the Gold payment sheet for SKU: \${goldSku}.\\n\\nFor this preview, we will simulate a successful transaction so you can see the game reaction!\`);
+                            // Since standard Webviews cannot await the result of the postMessage payment flow directly,
+                            // we show a simulation message.
+                            console.log(\`[WebSim] Attempted to trigger payment for \${goldSku}\`);
+                            
+                            alert(\`[Devvit Payment Preview]\\n\\nTriggered purchase for SKU: \${goldSku}\\n\\nSince this is a preview/webview, we will simulate a SUCCESSFUL transaction now so you can test the game reaction.\`);
                             
                             close();
                             resolve({}); 
-                            // In a real implementation with a wrapper, you would use:
-                            // window.parent.postMessage({ type: 'trigger_payment', sku: goldSku }, '*');
                         };
                     } else {
                         const input = modal.querySelector('#ws-comment-input');
