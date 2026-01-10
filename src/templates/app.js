@@ -313,13 +313,9 @@ router.post('/api/comments', async (req, res) => {
 
         console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
 
-        // [Fixed] Post as user using context.reddit (Authenticated User Client)
+        // Post as user using the imported reddit client
         // Requires "permissions": { "reddit": { "asUser": ["SUBMIT_COMMENT"] } } in devvit.json
-        if (!context.reddit) {
-             return res.status(401).json({ error: 'User not authenticated' });
-        }
-
-        const result = await context.reddit.submitComment({
+        const result = await reddit.submitComment({
             id: targetId,
             text: text
         });
@@ -446,12 +442,8 @@ router.post('/internal/createPost', async (req, res) => {
             return res.status(400).json({ error: 'Subreddit name is required (context/header missing)' });
         }
 
-        // Use context.reddit to post as the user (Moderator)
-        if (!context.reddit) {
-             return res.status(401).json({ error: 'User not authenticated' });
-        }
-
-        const post = await context.reddit.submitCustomPost({
+        // Use the imported reddit client to post as the user (Moderator)
+        const post = await reddit.submitCustomPost({
             title: '${safeTitle}',
             subredditName: subredditName,
             entry: 'default', // matches devvit.json entrypoint
