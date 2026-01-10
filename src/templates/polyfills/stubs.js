@@ -78,17 +78,25 @@ export const websimStubsJs = `
                     let innerHtml = '';
                     
                     if (isTip) {
+                        const amount = parseInt(data.credits) || 0;
+                        // Suggest nearest standard tier
+                        const tier = [5, 25, 50, 100].reduce((prev, curr) => Math.abs(curr - amount) < Math.abs(prev - amount) ? curr : prev);
+                        
                         innerHtml = \`
-                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:400px;text-align:center;border:1px solid #334155;">
-                                <h3 style="margin:0 0 16px 0;">💛 Support the Creator</h3>
-                                <p style="color:#94a3b8;margin-bottom:24px;line-height:1.5;">
-                                    This app is requesting a <strong>\${data.credits} Gold</strong> tip.
+                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:400px;text-align:center;border:1px solid #334155;box-shadow:0 10px 25px -5px rgba(0,0,0,0.5);">
+                                <h3 style="margin:0 0 16px 0;color:#ffd700;">💛 Support the Creator</h3>
+                                <p style="color:#cbd5e1;margin-bottom:24px;line-height:1.5;">
+                                    This app suggests a <strong>\${amount} Gold</strong> tip.
                                 </p>
-                                <div style="background:#334155;padding:12px;border-radius:8px;margin-bottom:24px;font-size:0.9rem;">
-                                    <strong>How to tip:</strong><br/>
-                                    Please use the official <strong>Golden Upvote</strong> or <strong>Tip</strong> button on the Reddit post to support this project!
+                                <div style="background:#334155;padding:16px;border-radius:8px;margin-bottom:24px;font-size:0.95rem;text-align:left;">
+                                    <div style="margin-bottom:8px;color:#94a3b8;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Instructions</div>
+                                    <ol style="margin:0;padding-left:20px;color:#e2e8f0;display:flex;flex-direction:column;gap:8px;">
+                                        <li>Close this window (tap 'Okay')</li>
+                                        <li>Tap the official <strong>Award/Tip</strong> button on the post</li>
+                                        <li>Select a <strong>\${tier} Gold</strong> award</li>
+                                    </ol>
                                 </div>
-                                <button id="ws-modal-close" style="background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:6px;font-weight:bold;cursor:pointer;width:100%;">Okay, got it</button>
+                                <button id="ws-modal-close" style="background:#FF4500;color:white;border:none;padding:12px 24px;border-radius:99px;font-weight:bold;cursor:pointer;width:100%;font-size:1rem;">Okay, I'll do it!</button>
                             </div>
                         \`;
                     } else {
