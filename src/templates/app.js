@@ -40,7 +40,7 @@ addPaymentHandler({
                     // Automated Thank You Comment
                     try {
                         const comment = await ctx.reddit.submitComment({
-                            postId: ctx.postId,
+                            id: ctx.postId,
                             text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
                         });
                         
@@ -311,7 +311,7 @@ router.post('/api/comments', async (req, res) => {
         // We use 'id' which covers both top-level posts and comments
         const targetId = parentId || postId;
 
-        console.log(`[Server] submitComment: id=${targetId} text_len=${text.length}`);
+        console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
 
         const result = await reddit.submitComment({
             id: targetId,

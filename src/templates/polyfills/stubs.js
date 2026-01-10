@@ -184,13 +184,18 @@ export const websimStubsJs = `
 
             collection: (name) => {
                 // Return safe stubs to prevent crashes before hydration
-                return window.websimSocketInstance ? window.websimSocketInstance.collection(name) : {
-                    subscribe: () => {}, 
+                // If WebsimSocket exists (realtime.js), use it. Otherwise use generic DB stub.
+                if (window.websimSocketInstance && typeof window.websimSocketInstance.collection === 'function') {
+                    return window.websimSocketInstance.collection(name);
+                }
+                // Fallback / Pre-init stub
+                return {
+                    subscribe: (cb) => { if(cb) cb([]); return () => {}; }, 
                     getList: () => [], 
-                    create: async () => {}, 
-                    update: async () => {}, 
+                    create: async () => ({}), 
+                    update: async () => ({}), 
                     delete: async () => {}, 
-                    filter: () => ({ subscribe: () => {}, getList: () => [] })
+                    filter: () => ({ subscribe: (cb) => { if(cb) cb([]); return () => {}; }, getList: () => [] })
                 };
             },
             search: {
