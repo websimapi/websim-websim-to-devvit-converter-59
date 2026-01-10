@@ -313,9 +313,12 @@ router.post('/api/comments', async (req, res) => {
 
         console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
 
+        // [Fixed] Post as user using runAs: 'USER'
+        // Requires "permissions": { "reddit": { "asUser": ["SUBMIT_COMMENT"] } } in devvit.json
         const result = await reddit.submitComment({
             id: targetId,
             text: text,
+            runAs: 'USER'
         });
 
         res.json({ success: true, id: result.id });
