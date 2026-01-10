@@ -140,6 +140,12 @@ export const websimStubsJs = `
                                         parentId: data.parent_comment_id
                                     })
                                 });
+                                
+                                if (!res.ok) {
+                                    const errData = await res.json().catch(() => ({}));
+                                    throw new Error(errData.error || 'Server Error ' + res.status);
+                                }
+
                                 const json = await res.json();
                                 
                                 // Emit local event

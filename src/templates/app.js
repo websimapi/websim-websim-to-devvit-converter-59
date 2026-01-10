@@ -308,10 +308,14 @@ router.post('/api/comments', async (req, res) => {
         }
 
         // Use User Actions to post as the authenticated user
+        // We use 'id' which covers both top-level posts and comments
+        const targetId = parentId || postId;
+
+        console.log(`[Server] submitComment: id=${targetId} text_len=${text.length}`);
+
         const result = await reddit.submitComment({
-            postId: postId,
+            id: targetId,
             text: text,
-            runAs: 'USER' // Explicitly run as the user
         });
 
         res.json({ success: true, id: result.id });
