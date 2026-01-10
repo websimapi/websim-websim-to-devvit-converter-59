@@ -155,7 +155,7 @@ export const websimStubsJs = `
                             // We rely on the user using the native UI in production, but for the game loop to continue,
                             // we simulate a success here and inform the user.
                             
-                            alert(`[Devvit Preview] In a real app, this would open the Gold payment sheet for SKU: \${goldSku}.\\n\\nFor this preview, we will simulate a successful transaction so you can see the game reaction!`);
+                            alert(\`[Devvit Preview] In a real app, this would open the Gold payment sheet for SKU: \${goldSku}.\\n\\nFor this preview, we will simulate a successful transaction so you can see the game reaction!\`);
                             
                             close();
                             resolve({}); 
