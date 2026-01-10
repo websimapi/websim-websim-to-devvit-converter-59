@@ -68,65 +68,37 @@ export const websimStubsJs = `
 
                 return new Promise((resolve) => {
                     // UI Injection for Comment/Tip Modal
+                    // We render a custom HTML modal to mimic the WebSim "staging" step
                     const modal = document.createElement('div');
-                    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI\",Roboto,sans-serif;color:white;';
+                    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:white;';
                     
                     const isTip = data.credits && data.credits > 0;
                     const prefilled = data.content || '';
                     
                     let innerHtml = '';
                     
-                    // Logic to map WebSim Credits to Reddit Gold SKUs
-                    let goldSku = 'tip_5_gold';
-                    let goldPrice = 5;
-                    let goldUsd = '$0.10';
-
                     if (isTip) {
-                        const c = data.credits;
-                        if (c >= 750) { goldSku = 'tip_100_gold'; goldPrice = 100; goldUsd = '$2.00'; }
-                        else if (c >= 400) { goldSku = 'tip_50_gold'; goldPrice = 50; goldUsd = '$1.00'; }
-                        else if (c >= 200) { goldSku = 'tip_25_gold'; goldPrice = 25; goldUsd = '$0.50'; }
-                        
                         innerHtml = \`
-                            <div style="background:#1A1A1B;padding:0;border-radius:16px;width:90%;max-width:360px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.5);border:1px solid #343536;">
-                                <div style="padding:24px;text-align:center;">
-                                    <div style="width:64px;height:64px;background:#FFd700;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#8B7500;box-shadow:inset 0 -4px 0 rgba(0,0,0,0.2);">
-                                        🪙
-                                    </div>
-                                    <h3 style="margin:0 0 8px 0;font-size:1.25rem;">Support the Creator</h3>
-                                    <p style="color:#D7DADC;margin:0 0 24px 0;font-size:0.9rem;line-height:1.4;">
-                                        This action requires a tip. Swap your <strong>\${c} Credits</strong> for:
-                                    </p>
-                                    
-                                    <div style="background:#272729;border:1px solid #343536;border-radius:12px;padding:16px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;">
-                                        <div style="text-align:left;">
-                                            <div style="font-weight:700;font-size:1.1rem;color:#FFd700;">\${goldPrice} Gold</div>
-                                            <div style="font-size:0.8rem;color:#818384;">Approx. \${goldUsd}</div>
-                                        </div>
-                                        <div style=\"font-size:1.5rem;\">➔</div>
-                                    </div>
-                                    
-                                    <button id="ws-modal-pay" style="background:#D93A00;color:white;border:none;padding:12px 24px;border-radius:99px;font-weight:700;font-size:1rem;cursor:pointer;width:100%;transition:transform 0.1s;">
-                                        Purchase \${goldPrice} Gold
-                                    </button>
-                                    <button id="ws-modal-close" style="background:transparent;color:#818384;border:none;padding:12px;margin-top:8px;font-weight:600;cursor:pointer;width:100%;">
-                                        Cancel
-                                    </button>
-                                </div>
-                                <div style="background:#272729;padding:12px;font-size:0.75rem;color:#818384;text-align:center;border-top:1px solid #343536;">
-                                    Secured by Reddit Payments
+                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:400px;text-align:center;border:1px solid #334155;box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+                                <h3 style="margin:0 0 16px 0;">💛 Support the Creator</h3>
+                                <p style="color:#94a3b8;margin-bottom:24px;line-height:1.5;">
+                                    This app is requesting a <strong>\${data.credits} Gold</strong> tip.
+                                </p>
+                                <div id="ws-tip-status" style="margin-bottom:20px; font-size:0.9rem; color:#f8fafc; min-height:1.2em;"></div>
+                                <div style="display:flex;gap:12px;">
+                                    <button id="ws-modal-cancel" style="background:transparent;color:#94a3b8;border:1px solid #334155;padding:10px 16px;border-radius:6px;cursor:pointer;flex:1;">Cancel</button>
+                                    <button id="ws-modal-tip" style="background:#FF4500;color:white;border:none;padding:10px 24px;border-radius:6px;font-weight:bold;cursor:pointer;flex:2;">Send Tip</button>
                                 </div>
                             </div>
                         \`;
                     } else {
-                        // Standard Comment UI
                         innerHtml = \`
-                            <div style="background:#1A1A1B;padding:24px;border-radius:12px;width:90%;max-width:500px;display:flex;flex-direction:column;gap:16px;border:1px solid #343536;">
-                                <h3 style="margin:0;color:#D7DADC;">💬 Post a Comment</h3>
-                                <textarea id="ws-comment-input" style="width:100%;height:100px;background:#272729;border:1px solid #343536;border-radius:8px;color:white;padding:12px;font-family:inherit;font-size:1rem;resize:none;box-sizing:border-box;">\${prefilled}</textarea>
+                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:500px;display:flex;flex-direction:column;gap:16px;border:1px solid #334155;">
+                                <h3 style="margin:0;">💬 Post a Comment</h3>
+                                <textarea id="ws-comment-input" style="width:100%;height:100px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:white;padding:12px;font-family:inherit;resize:none;box-sizing:border-box;">\${prefilled}</textarea>
                                 <div style="display:flex;gap:10px;justify-content:flex-end;">
-                                    <button id="ws-modal-cancel" style="background:transparent;color:#818384;border:none;padding:10px 16px;cursor:pointer;font-weight:600;">Cancel</button>
-                                    <button id="ws-modal-post" style="background:#D7DADC;color:#1A1A1B;border:none;padding:10px 24px;border-radius:99px;font-weight:bold;cursor:pointer;">Post Comment</button>
+                                    <button id="ws-modal-cancel" style="background:transparent;color:#94a3b8;border:none;padding:10px 16px;cursor:pointer;font-weight:600;">Cancel</button>
+                                    <button id="ws-modal-post" style="background:#FF4500;color:white;border:none;padding:10px 24px;border-radius:6px;font-weight:bold;cursor:pointer;">Post Comment</button>
                                 </div>
                             </div>
                         \`;
@@ -138,34 +110,62 @@ export const websimStubsJs = `
                     const close = () => { document.body.removeChild(modal); };
 
                     if (isTip) {
-                        modal.querySelector('#ws-modal-close').onclick = () => {
+                        modal.querySelector('#ws-modal-cancel').onclick = () => {
                             close();
                             resolve({ error: 'User cancelled' });
                         };
-                        
-                        modal.querySelector('#ws-modal-pay').onclick = async () => {
-                            const btn = modal.querySelector('#ws-modal-pay');
-                            btn.innerHTML = '<span style=\"display:inline-block;animation:spin 1s linear infinite;\">↻</span> Processing...';
+                        modal.querySelector('#ws-modal-tip').onclick = async () => {
+                            const btn = modal.querySelector('#ws-modal-tip');
+                            const status = modal.querySelector('#ws-tip-status');
                             btn.disabled = true;
+                            btn.textContent = 'Processing...';
                             
-                            // Post message to parent (if wrapped in Blocks) to trigger actual payment
-                            // This allows "Hotswap" if the user adds a Blocks wrapper
-                            window.parent.postMessage({ 
-                                type: 'trigger_payment', 
-                                sku: goldSku 
-                            }, '*');
+                            try {
+                                if (!window.purchase) throw new Error("Purchase API not available");
+                                
+                                // Reddit Gold Tiers: 5, 25, 50, 100, 150, 250, 500, 1000, 2500
+                                const validTiers = [5, 25, 50, 100, 150, 250, 500, 1000, 2500];
+                                const requested = Number(data.credits);
+                                // Find closest valid tier (round up preferred for tips)
+                                const tier = validTiers.find(t => t >= requested) || validTiers[validTiers.length - 1];
+                                
+                                if (tier !== requested) {
+                                     console.log(\`[Polyfill] Adjusting tip amount from \${requested} to nearest Reddit tier: \${tier}\`);
+                                }
 
-                            // SIMULATION DELAY (For pure Webview Preview)
-                            await new Promise(r => setTimeout(r, 1000));
-                            
-                            // Since standard Webviews cannot await the result of the postMessage payment flow directly,
-                            // we show a simulation message.
-                            console.log(\`[WebSim] Attempted to trigger payment for \${goldSku}\`);
-                            
-                            alert(\`[Devvit Payment Preview]\\n\\nTriggered purchase for SKU: \${goldSku}\\n\\nSince this is a preview/webview, we will simulate a SUCCESSFUL transaction now so you can test the game reaction.\`);
-                            
-                            close();
-                            resolve({}); 
+                                const sku = \`tip_\${tier}_gold\`;
+                                const result = await window.purchase(sku);
+                                
+                                if (result.status === window.OrderResultStatus.STATUS_SUCCESS) {
+                                    status.style.color = '#10b981';
+                                    status.textContent = 'Success! Thank you for your support.';
+                                    
+                                    // If there was also a comment, post it now
+                                    if (data.content && data.content.trim()) {
+                                        await originalFetch('/api/comments', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                                content: data.content,
+                                                parentId: data.parent_comment_id
+                                            })
+                                        });
+                                    }
+                                    
+                                    setTimeout(() => {
+                                        close();
+                                        resolve({});
+                                    }, 1500);
+                                } else {
+                                    throw new Error(result.errorMessage || 'Purchase failed or was cancelled');
+                                }
+                            } catch(e) {
+                                console.error("Tipping Failed:", e);
+                                status.style.color = '#ef4444';
+                                status.textContent = e.message;
+                                btn.disabled = false;
+                                btn.textContent = 'Retry Tip';
+                            }
                         };
                     } else {
                         const input = modal.querySelector('#ws-comment-input');

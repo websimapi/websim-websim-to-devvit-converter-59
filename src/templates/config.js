@@ -47,6 +47,16 @@ export const generateDevvitJson = (slug, entrypoints) => JSON.stringify({
       }
     }
   },
+  "payments": {
+    "productsFile": "products.json",
+    "endpoints": {
+      "fulfillOrder": "/internal/payments/fulfill",
+      "refundOrder": "/internal/payments/refund"
+    }
+  },
+  "media": {
+    "dir": "assets"
+  },
   "server": {
     "entry": "index.cjs"
   },
@@ -56,9 +66,6 @@ export const generateDevvitJson = (slug, entrypoints) => JSON.stringify({
     "reddit": {
       "enable": true,
       "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
-    },
-    "http": {
-      "allowedDomains": ["*"]
     }
   },
   "triggers": {

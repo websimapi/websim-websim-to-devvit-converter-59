@@ -205,6 +205,65 @@ router.post('/api/delete', async (req, res) => {
 });
 
 // --- Realtime Relay (Client -> Server -> Clients) ---
+// --- Payments Endpoints (Fulfillment) ---
+router.post('/internal/payments/fulfill', async (req, res) => {
+    try {
+        // The payment data is passed in the request body.
+        // It's often the order object itself, but we'll check both patterns for robustness.
+        const order = req.body.order || req.body;
+        
+        if (!order || typeof order !== 'object') {
+            return res.status(400).json({ success: false, reason: "Invalid or missing order data" });
+        }
+
+        console.log(\`[Server] Fulfillment Received: ID=\${order.id} Status=\${order.status}\`);
+
+        if (order.status === 'PAID') {
+            const product = order.products && order.products[0];
+            const sku = product ? product.sku : '';
+            
+            // SKU format: tip_25_gold
+            const match = sku.match(/tip_(\d+)_gold/);
+            const amount = match ? parseInt(match[1]) : 0;
+            
+            // Extract IDs from order if context is not yet hydrated (failsafe)
+            const userId = context.userId || order.userId;
+            const postId = context.postId || order.postId;
+
+            if (amount > 0 && userId && postId) {
+                const tipKey = \`tips:\${postId}:\${userId}\`;
+                await redis.incrBy(tipKey, amount);
+                
+                // Automated Thank You Comment
+                try {
+                    const comment = await reddit.submitComment({
+                        id: postId,
+                        text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
+                    });
+                    
+                    const metaKey = \`comment_metadata:\${comment.id}\`;
+                    await redis.hSet(metaKey, {
+                        type: 'tip_comment',
+                        credits_spent: String(amount)
+                    });
+                } catch(err) {
+                    console.warn('Failed to post tip comment:', err);
+                }
+            }
+            return res.json({ success: true });
+        }
+
+        res.json({ success: false, reason: \`Unexpected order status: \${order.status}\` });
+    } catch (e) {
+        console.error('Payment Fulfillment Error:', e);
+        res.status(500).json({ success: false, reason: e.message });
+    }
+});
+
+router.post('/internal/payments/refund', async (req, res) => {
+    res.json({ success: true });
+});
+
 router.post('/api/realtime/message', async (req, res) => {
     try {
         const msg = req.body;
@@ -313,21 +372,13 @@ router.post('/api/comments', async (req, res) => {
 
         console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
 
+        // [Fixed] Post as user using runAs: 'USER'
         // Requires "permissions": { "reddit": { "asUser": ["SUBMIT_COMMENT"] } } in devvit.json
-        // Use context.reddit if available (authenticated user), otherwise fallback to app client with runAs
-        const client = context.reddit || reddit;
-        const options = {
+        const result = await reddit.submitComment({
             id: targetId,
-            text: text
-        };
-
-        // If we are using the global client (app context), we must specify runAs: 'USER'
-        if (!context.reddit) {
-            // @ts-ignore - Explicitly cast as 'USER' for devvit runtime
-            options.runAs = 'USER';
-        }
-
-        const result = await client.submitComment(options);
+            text: text,
+            runAs: 'USER'
+        });
 
         res.json({ success: true, id: result.id });
     } catch (e) {

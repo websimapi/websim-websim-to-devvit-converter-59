@@ -199,6 +199,90 @@ export async function generateDevvitZip(projectMeta, assets, includeReadme = tru
     }
 
     const extraDevDeps = {};
+
+    // 5. Add Payment Product Icons (Gold Fallback)
+    // Devvit requires product icons to be 256x256 PNGs in the /assets folder at the project root.
+    // We generate a valid 256x256 gold coin icon using Canvas.
+    async function generateGoldIcon() {
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            // Background (Transparent)
+            ctx.clearRect(0, 0, 256, 256);
+
+            // Gold Circle
+            const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 120);
+            grad.addColorStop(0, '#FFD700'); // Gold
+            grad.addColorStop(1, '#DAA520'); // GoldenRod
+            
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(128, 128, 110, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Border
+            ctx.strokeStyle = '#B8860B'; // DarkGold
+            ctx.lineWidth = 12;
+            ctx.stroke();
+
+            // Reflection
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.beginPath();
+            ctx.arc(90, 90, 45, 0, Math.PI * 2);
+            ctx.fill();
+
+            // "G" Symbol
+            ctx.fillStyle = '#8B6508';
+            ctx.font = 'bold 120px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('G', 128, 134);
+
+            return new Promise(resolve => {
+                canvas.toBlob(blob => {
+                    if (!blob) return resolve(null);
+                    blob.arrayBuffer().then(ab => resolve(new Uint8Array(ab)));
+                }, 'image/png');
+            });
+        } catch(e) {
+            console.error("[Generator] Canvas icon generation failed:", e);
+            return null;
+        }
+    }
+
+    // Reddit Gold standards (5, 25, 50, 100, 150, 250, 500, 1000, 2500)
+    const validGoldTiers = [5, 25, 50, 100, 150, 250, 500, 1000, 2500];
+
+    let iconData = await generateGoldIcon();
+    
+    // Attempt high-quality remote fetch as preference
+    try {
+        const GOLD_ICON_URL = 'https://websim.ai/a/fd74f00a-3bc8-4538-bc68-1e6706b50d45';
+        const iconRes = await fetch(GOLD_ICON_URL);
+        if (iconRes.ok) {
+            const ab = await iconRes.arrayBuffer();
+            const remoteIcon = new Uint8Array(ab);
+            // Quick check: standard PNG header
+            if (remoteIcon[0] === 0x89 && remoteIcon[1] === 0x50) {
+                iconData = remoteIcon;
+            }
+        }
+    } catch (e) {}
+
+    // Populate the /assets directory at the project root
+    if (iconData) {
+        const assetsFolder = zip.folder("assets");
+        const prodFolder = assetsFolder.folder("products");
+        
+        // Map the generated icon to all standard tip increments defined in products.json
+        validGoldTiers.forEach(amount => {
+            prodFolder.file(`tip_${amount}.png`, iconData);
+        });
+    }
+
     if (hasReact) {
         extraDevDeps['@vitejs/plugin-react'] = '^4.2.0';
         extraDevDeps['@babel/core'] = '^7.23.0';
@@ -268,15 +352,20 @@ export default {
     zip.file("package.json", generatePackageJson(projectSlug, analyzer.dependencies, extraDevDeps));
     zip.file("devvit.json", generateDevvitJson(projectSlug, entrypoints));
     zip.file("tsconfig.json", tsConfig);
-    // [Fixed] Products now align with Devvit Gold standards (5, 25, 50)
+
+    const products = validGoldTiers.map(amount => ({
+        sku: `tip_${amount}_gold`,
+        displayName: `${amount} Gold Tip`,
+        description: `Support the creator with a ${amount} gold tip`,
+        price: amount,
+        metadata: { credits: String(amount), category: "tip" },
+        accountingType: "INSTANT",
+        images: { icon: `products/tip_${amount}.png` }
+    }));
+
     zip.file("products.json", JSON.stringify({
         "$schema": "https://developers.reddit.com/schema/products.json",
-        "products": [
-            { "sku": "tip_5_gold", "displayName": "Bronze Tip (5 Gold)", "price": 5, "metadata": { "credits": "5", "category": "tip" }, "accountingType": "INSTANT", "images": { "icon": "products/tip_5.png" } },
-            { "sku": "tip_25_gold", "displayName": "Silver Tip (25 Gold)", "price": 25, "metadata": { "credits": "25", "category": "tip" }, "accountingType": "INSTANT", "images": { "icon": "products/tip_25.png" } },
-            { "sku": "tip_50_gold", "displayName": "Gold Tip (50 Gold)", "price": 50, "metadata": { "credits": "50", "category": "tip" }, "accountingType": "INSTANT", "images": { "icon": "products/tip_50.png" } },
-            { "sku": "tip_100_gold", "displayName": "Platinum Tip (100 Gold)", "price": 100, "metadata": { "credits": "100", "category": "tip" }, "accountingType": "INSTANT", "images": { "icon": "products/tip_100.png" } }
-        ]
+        "products": products
     }, null, 2));
     zip.file(".gitignore", "node_modules\n.devvit\ndist"); 
 
@@ -323,7 +412,7 @@ export default {
     }
 
     // Prepare Polyfill Imports (Static) - hoisting import to top to avoid dynamic import issues
-    let polyfillImports = "import { connectRealtime } from '@devvit/web/client';\nwindow.connectRealtime = connectRealtime;\n";
+    let polyfillImports = "import { connectRealtime, purchase, OrderResultStatus } from '@devvit/web/client';\nwindow.connectRealtime = connectRealtime;\nwindow.purchase = purchase;\nwindow.OrderResultStatus = OrderResultStatus;\n";
     
     // Combine
     const combinedPolyfills = [polyfillImports, shimCode, simpleLoggerJs, webAudioPolyfill, websimSocketPolyfill, websimStubsJs, avatarInjector].join('\n\n');
