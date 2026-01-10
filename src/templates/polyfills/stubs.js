@@ -65,56 +65,109 @@ export const websimStubsJs = `
             postComment: async (data) => {
                 // Data: { content: string, parent_comment_id?: string, credits?: number }
                 console.log("[Polyfill] postComment:", data);
-                
-                // Handle Tips
-                if (data.credits && data.credits > 0) {
-                    // In Devvit WebView, we cannot easily trigger the native payment sheet 
-                    // without postMessage to a Blocks wrapper. 
-                    // For now, we show a toast instructing the user (or log error).
-                    // This is a limitation of the WebView porting model without a Blocks UI companion.
-                    console.warn("[Polyfill] Native tipping requires Devvit Blocks. Please implement UI trigger.");
-                    
-                    // Attempt to inform user if toast available
-                    alert(\`Please use the Reddit 'Tip' button above the post to send \${data.credits} Gold! (WebView integration pending)\`);
-                    return { error: "Tipping requires native UI interaction." };
-                }
 
-                // Handle Text Comments
-                if (data.content) {
-                    try {
-                        const res = await originalFetch('/api/comments', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                content: data.content,
-                                parentId: data.parent_comment_id
-                            })
-                        });
-                        const json = await res.json();
+                return new Promise((resolve) => {
+                    // UI Injection for Comment/Tip Modal
+                    // We render a custom HTML modal to mimic the WebSim "staging" step
+                    const modal = document.createElement('div');
+                    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:white;';
+                    
+                    const isTip = data.credits && data.credits > 0;
+                    const prefilled = data.content || '';
+                    
+                    let innerHtml = '';
+                    
+                    if (isTip) {
+                        innerHtml = \`
+                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:400px;text-align:center;border:1px solid #334155;">
+                                <h3 style="margin:0 0 16px 0;">💛 Support the Creator</h3>
+                                <p style="color:#94a3b8;margin-bottom:24px;line-height:1.5;">
+                                    This app is requesting a <strong>\${data.credits} Gold</strong> tip.
+                                </p>
+                                <div style="background:#334155;padding:12px;border-radius:8px;margin-bottom:24px;font-size:0.9rem;">
+                                    <strong>How to tip:</strong><br/>
+                                    Please use the official <strong>Golden Upvote</strong> or <strong>Tip</strong> button on the Reddit post to support this project!
+                                </div>
+                                <button id="ws-modal-close" style="background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:6px;font-weight:bold;cursor:pointer;width:100%;">Okay, got it</button>
+                            </div>
+                        \`;
+                    } else {
+                        innerHtml = \`
+                            <div style="background:#1e293b;padding:24px;border-radius:12px;width:90%;max-width:500px;display:flex;flex-direction:column;gap:16px;border:1px solid #334155;">
+                                <h3 style="margin:0;">💬 Post a Comment</h3>
+                                <textarea id="ws-comment-input" style="width:100%;height:100px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:white;padding:12px;font-family:inherit;resize:none;box-sizing:border-box;">\${prefilled}</textarea>
+                                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                                    <button id="ws-modal-cancel" style="background:transparent;color:#94a3b8;border:none;padding:10px 16px;cursor:pointer;font-weight:600;">Cancel</button>
+                                    <button id="ws-modal-post" style="background:#FF4500;color:white;border:none;padding:10px 24px;border-radius:6px;font-weight:bold;cursor:pointer;">Post Comment</button>
+                                </div>
+                            </div>
+                        \`;
+                    }
+                    
+                    modal.innerHTML = innerHtml;
+                    document.body.appendChild(modal);
+                    
+                    const close = () => { document.body.removeChild(modal); };
+
+                    if (isTip) {
+                        modal.querySelector('#ws-modal-close').onclick = () => {
+                            close();
+                            resolve({}); // Resolve gracefully even though we didn't mechanically transact
+                        };
+                    } else {
+                        const input = modal.querySelector('#ws-comment-input');
+                        input.focus();
                         
-                        // Emit local event so UI updates instantly
-                        const user = await window.websim.getCurrentUser();
-                        const evt = {
-                            comment: {
-                                id: json.id || 'temp_' + Date.now(),
-                                raw_content: data.content,
-                                author: user,
-                                created_at: new Date().toISOString(),
-                                parent_comment_id: data.parent_comment_id
-                            }
+                        modal.querySelector('#ws-modal-cancel').onclick = () => {
+                            close();
+                            resolve({ error: 'User cancelled' });
                         };
                         
-                        // Fake event dispatch
-                        const listeners = window._websim_comment_listeners || [];
-                        listeners.forEach(cb => cb(evt));
-                        
-                        return {}; // Success
-                    } catch(e) {
-                        console.error("Comment Post Failed:", e);
-                        return { error: e.message };
+                        modal.querySelector('#ws-modal-post').onclick = async () => {
+                            const text = input.value;
+                            if (!text.trim()) return;
+                            
+                            const btn = modal.querySelector('#ws-modal-post');
+                            btn.textContent = 'Posting...';
+                            btn.disabled = true;
+                            
+                            try {
+                                const res = await originalFetch('/api/comments', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        content: text,
+                                        parentId: data.parent_comment_id
+                                    })
+                                });
+                                const json = await res.json();
+                                
+                                // Emit local event
+                                const user = await window.websim.getCurrentUser();
+                                const evt = {
+                                    comment: {
+                                        id: json.id || 'temp_' + Date.now(),
+                                        raw_content: text,
+                                        author: user,
+                                        created_at: new Date().toISOString(),
+                                        parent_comment_id: data.parent_comment_id
+                                    }
+                                };
+                                
+                                const listeners = window._websim_comment_listeners || [];
+                                listeners.forEach(cb => cb(evt));
+                                
+                                close();
+                                resolve({});
+                            } catch(e) {
+                                console.error("Comment Post Failed:", e);
+                                alert("Failed to post comment: " + e.message);
+                                btn.textContent = 'Retry';
+                                btn.disabled = false;
+                            }
+                        };
                     }
-                }
-                return {};
+                });
             },
             addEventListener: (event, cb) => {
                 if (event === 'comment:created') {

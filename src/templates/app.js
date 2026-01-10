@@ -226,13 +226,17 @@ router.get('/api/comments', async (req, res) => {
 
         // Get comments from Reddit
         // Note: We fetch more items if we are filtering for tips to increase likelihood of finding them
-        const comments = await reddit.getComments({
-            postId: postId,
-            limit: onlyTips ? 100 : 50
-        }).catch(e => {
+        let comments = [];
+        try {
+            comments = await reddit.getComments({
+                postId: postId,
+                limit: onlyTips ? 100 : 50
+            });
+        } catch (e) {
             console.warn('Reddit API getComments failed:', e);
-            return []; // Return empty on API failure (e.g. permissions) to prevent crash
-        });
+            // Return empty on API failure to prevent crash
+            comments = [];
+        }
 
         // Transform to WebSim format
         let data = await Promise.all(comments.map(async (c) => {
@@ -289,13 +293,19 @@ router.post('/api/comments', async (req, res) => {
         const postId = context.postId;
         
         if (!postId) return res.status(400).json({ error: 'No Post Context' });
+        
+        // Validate content is a string
+        const text = typeof content === 'string' ? content : '';
+        if (!text.trim()) {
+            return res.status(400).json({ error: 'Comment content cannot be empty' });
+        }
 
         // submitComment expects postId for top-level, or parentId for replies
         // If parentId is provided (t1_...), we use that as parent.
         // If not, we use postId (t3_...).
         const result = await reddit.submitComment({
             postId: postId, 
-            text: content
+            text: text
         });
 
         res.json({ success: true, id: result.id });
