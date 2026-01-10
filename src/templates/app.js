@@ -31,16 +31,16 @@ addPaymentHandler({
                 
                 if (amount > 0 && ctx.userId && ctx.postId) {
                     // Record global stats
-                    await ctx.redis.incrBy(`tips:${ctx.postId}:${ctx.userId}`, amount);
+                    await ctx.redis.incrBy(\`tips:\${ctx.postId}:\${ctx.userId}\`, amount);
                     
                     // Post a "Tip Comment" automatically
                     const comment = await ctx.reddit.submitComment({
                         postId: ctx.postId,
-                        text: `**Tipped ${amount} Gold!** 🟡\n\n*(Automated via Devvit Payments)*`
+                        text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
                     });
                     
                     // Mark this comment as a tip in Redis so we can hydrate it later
-                    await ctx.redis.hSet(`comment_metadata:${comment.id}`, {
+                    await ctx.redis.hSet(\`comment_metadata:\${comment.id}\`, {
                         type: 'tip_comment',
                         credits_spent: amount.toString()
                     });
