@@ -14,8 +14,17 @@ export const websimStubsJs = `
             const commentMatch = input.match(/\\/api\\/v1\\/projects\\/[^/]+\\/comments(.*)/);
             if (commentMatch) {
                 const query = commentMatch[1] || '';
-                // console.log("[Polyfill] Intercepting Comment Fetch:", input, "->", '/api/comments' + query);
-                return originalFetch('/api/comments' + query, init);
+                // Hotswap: If filtering by tips, use the dedicated financial endpoint
+                // Add cache-busting to prevent stale data on hotswap
+                const ts = Date.now();
+                const separator = query.includes('?') ? '&' : '?';
+                const bust = separator + '_t=' + ts;
+
+                if (query.includes('only_tips=true')) {
+                     // console.log("[Polyfill] Redirecting tip fetch to /api/tips");
+                     return originalFetch('/api/tips' + query + bust, init);
+                }
+                return originalFetch('/api/comments' + query + bust, init);
             }
         }
         return originalFetch(input, init);
@@ -118,6 +127,7 @@ export const websimStubsJs = `
                             const btn = modal.querySelector('#ws-modal-tip');
                             const status = modal.querySelector('#ws-tip-status');
                             btn.disabled = true;
+                            btn.style.opacity = '0.7';
                             btn.textContent = 'Processing...';
                             
                             try {
@@ -132,7 +142,20 @@ export const websimStubsJs = `
                                 if (tier !== requested) {
                                      console.log(\`[Polyfill] Adjusting tip amount from \${requested} to nearest Reddit tier: \${tier}\`);
                                 }
+                                
+                                // NEW FLOW: Post Comment/Pending Link FIRST
+                                // This ensures the metadata is waiting on the server when the webhook hits
+                                await originalFetch('/api/comments', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        content: data.content || '',
+                                        parentId: data.parent_comment_id,
+                                        credits: tier // Send tier (actual cost) so it matches sku amount
+                                    })
+                                });
 
+                                // Then Trigger Purchase
                                 const sku = \`tip_\${tier}_gold\`;
                                 const result = await window.purchase(sku);
                                 
@@ -140,18 +163,66 @@ export const websimStubsJs = `
                                     status.style.color = '#10b981';
                                     status.textContent = 'Success! Thank you for your support.';
                                     
-                                    // If there was also a comment, post it now
-                                    if (data.content && data.content.trim()) {
-                                        await originalFetch('/api/comments', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({
-                                                content: data.content,
-                                                parentId: data.parent_comment_id
-                                            })
-                                        });
-                                    }
-                                    
+                                    // Trigger UI Refresh
+                                    try {
+                                        const user = await window.websim.getCurrentUser();
+                                        
+                                        // 1. Dispatch comment:created event (for Latest feed)
+                                        const evt = {
+                                            comment: {
+                                                id: 'temp_tip_' + Date.now(),
+                                                raw_content: data.content || '',
+                                                author: user,
+                                                created_at: new Date().toISOString(),
+                                                parent_comment_id: data.parent_comment_id,
+                                                card_data: {
+                                                    type: 'tip_comment',
+                                                    credits_spent: tier
+                                                }
+                                            }
+                                        };
+                                        const listeners = window._websim_comment_listeners || [];
+                                        listeners.forEach(cb => cb(evt));
+
+                                        // 2. Fetch and dispatch updated user total (for Tiers)
+                                        try {
+                                            const totalResp = await originalFetch(\`/api/user-total/\${user.id}\`);
+                                            if (totalResp.ok) {
+                                                const totalData = await totalResp.json();
+                                                const newTotal = totalData.total || 0;
+                                                
+                                                window.dispatchEvent(new CustomEvent('tip:total-updated', { 
+                                                    detail: { 
+                                                        userId: user.id, 
+                                                        newTotal: newTotal, 
+                                                        tipAmount: tier 
+                                                    } 
+                                                }));
+                                                
+                                                // Hotswap App State if accessible
+                                                if (window.app && typeof window.app.userTotalTipped !== 'undefined') {
+                                                    window.app.userTotalTipped = newTotal;
+                                                    // Re-render tiers if modal is open
+                                                    if (window.app.renderTiers && !document.getElementById('modal-overlay')?.classList.contains('hidden')) {
+                                                        window.app.renderTiers();
+                                                    }
+                                                }
+                                            }
+                                        } catch(e) { console.warn("Failed to fetch updated total:", e); }
+                                        
+                                        // 3. Force reload active tab if it's Tips/Supporters/Best
+                                        setTimeout(() => {
+                                            const activeTab = document.querySelector('.tab-btn.active, .tab.active');
+                                            if (activeTab) {
+                                                const tabName = (activeTab.dataset.tab || activeTab.textContent || '').toLowerCase();
+                                                if (tabName.includes('tip') || tabName.includes('support') || tabName.includes('best')) {
+                                                     activeTab.click(); 
+                                                }
+                                            }
+                                        }, 500);
+
+                                    } catch(e) { console.warn("UI update dispatch failed:", e); }
+
                                     setTimeout(() => {
                                         close();
                                         resolve({});
@@ -307,6 +378,69 @@ export const websimStubsJs = `
                 }
             }
         };
+    }
+
+    // --- Global State Hotswap / Persistence ---
+    // Aggressively sync userTotalTipped to any app/game object found in the window scope
+    function syncAppState(user) {
+        if (!user) return;
+        const total = parseInt(user.total_tipped || user.totalTipped || 0);
+        
+        // Potential roots where games store state
+        const candidates = [window.app, window.game, window.UI, window.Game, window.state, window.store];
+        
+        candidates.forEach(root => {
+            if (root && typeof root === 'object') {
+                // Direct property injection
+                if (typeof root.userTotalTipped !== 'undefined') root.userTotalTipped = total;
+                if (typeof root.totalTipped !== 'undefined') root.totalTipped = total;
+                if (typeof root.credits !== 'undefined') root.credits = total;
+                
+                // Nested state injection
+                if (root.state) {
+                     if (typeof root.state.userTotalTipped !== 'undefined') root.state.userTotalTipped = total;
+                     if (typeof root.state.totalTipped !== 'undefined') root.state.totalTipped = total;
+                }
+                
+                // Trigger updates if methods exist
+                try {
+                    if (typeof root.renderTiers === 'function') root.renderTiers();
+                    if (typeof root.updateUI === 'function') root.updateUI();
+                    if (typeof root.refresh === 'function') root.refresh();
+                } catch(e) {}
+            }
+        });
+        
+        // Update generic DOM elements for lightweight UIs
+        document.querySelectorAll('[data-user-total], .user-total-credits').forEach(el => {
+            el.textContent = total;
+        });
+    }
+
+    if (typeof window !== 'undefined') {
+        // 1. Sync on Game Data Ready (Initial Load)
+        window.addEventListener('GAMEDATA_READY', (e) => {
+            // e.detail usually contains dbData, but user is on window._currentUser
+            if (window._currentUser) syncAppState(window._currentUser);
+        });
+
+        // 2. Sync on Realtime Updates (Post-Purchase)
+        window.addEventListener('tip:total-updated', (e) => {
+            const { newTotal } = e.detail;
+            if (window._currentUser) window._currentUser.total_tipped = newTotal;
+            syncAppState({ total_tipped: newTotal });
+        });
+
+        // 3. Periodic Check (Persistent Hotswap)
+        // Ensures state is set even if the app loads slowly or overwrites variables
+        const hotswapInterval = setInterval(() => {
+            if (window._currentUser) {
+                syncAppState(window._currentUser);
+            }
+        }, 2000);
+        
+        // Stop checking after 60s to save resources, assuming stable state
+        setTimeout(() => clearInterval(hotswapInterval), 60000);
     }
 })();
 `;

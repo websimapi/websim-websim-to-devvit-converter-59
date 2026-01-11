@@ -9,55 +9,14 @@ import {
     getServerPort, 
     redis, 
     reddit,
-    realtime
+    realtime,
+    payments
 } from '@devvit/web/server';
-import { addPaymentHandler } from '@devvit/payments';
-
 // Enable Realtime & Reddit API
 Devvit.configure({
     redditAPI: true,
     realtime: true,
     http: true
-});
-
-// --- Payments Handler ---
-// Handles tip_X_gold products
-addPaymentHandler({
-    fulfillOrder: async (order, ctx) => {
-        if (order.status === 'PAID') {
-            try {
-                const product = order.products && order.products[0];
-                const sku = product ? product.sku : '';
-                
-                // SKU format: tip_25_gold
-                const match = sku.match(/tip_(\d+)_gold/);
-                const amount = match ? parseInt(match[1]) : 0;
-                
-                if (amount > 0 && ctx.userId && ctx.postId) {
-                    const tipKey = \`tips:\${ctx.postId}:\${ctx.userId}\`;
-                    await ctx.redis.incrBy(tipKey, amount);
-                    
-                    // Automated Thank You Comment
-                    try {
-                        const comment = await ctx.reddit.submitComment({
-                            id: ctx.postId,
-                            text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
-                        });
-                        
-                        const metaKey = \`comment_metadata:\${comment.id}\`;
-                        await ctx.redis.hSet(metaKey, {
-                            type: 'tip_comment',
-                            credits_spent: String(amount)
-                        });
-                    } catch(err) {
-                        console.warn('Failed to post tip comment:', err);
-                    }
-                }
-            } catch (e) {
-                console.error("Payment Fulfillment Error:", e);
-            }
-        }
-    }
 });
 
 const app = express();
@@ -71,6 +30,36 @@ const router = express.Router();
 
 // --- Database Helpers ---
 const DB_REGISTRY_KEY = 'sys:registry';
+
+// Helper: Calculate total from order history (Self-healing)
+async function recalculateUserTotal(userId) {
+    try {
+        // 1. Fetch all order IDs for user
+        const orderIds = await redis.zRange(\`user_orders:\${userId}\`, 0, -1);
+        if (!orderIds || orderIds.length === 0) return 0;
+
+        // 2. Fetch order details
+        let total = 0;
+        const promises = orderIds.map(id => redis.get(\`order:\${id}\`));
+        const results = await Promise.all(promises);
+        
+        results.forEach(r => {
+            if (r) {
+                const o = JSON.parse(r);
+                if (o.amount) total += parseInt(o.amount) || 0;
+            }
+        });
+
+        // 3. Heal the cache
+        if (total > 0) {
+            await redis.set(\`user_total:\${userId}\`, String(total));
+        }
+        return total;
+    } catch (e) {
+        console.warn("Recalculate total failed:", e);
+        return 0;
+    }
+}
 
 async function fetchAllData() {
     try {
@@ -116,6 +105,15 @@ async function fetchAllData() {
             }
         } catch(e) { 
             console.warn('User fetch failed', e); 
+        }
+
+        // Hydrate User Total (for immediate UI availability)
+        if (user && user.id !== 'anon') {
+             let total = await redis.get(\`user_total:\${user.id}\`);
+             if (!total) {
+                 total = await recalculateUserTotal(user.id);
+             }
+             user.total_tipped = parseInt(total || '0') || 0;
         }
 
         return { dbData, user };
@@ -204,60 +202,286 @@ router.post('/api/delete', async (req, res) => {
     }
 });
 
+// --- Tip & Supporter Endpoints (WebSim Porting) ---
+
+router.get('/api/tips', async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    const postId = context.postId;
+    
+    // 1. Redis Source (Primary for Consistency)
+    // We prioritize our internal index because it's updated immediately upon fulfillment,
+    // whereas payments.getOrders() can have eventual consistency lag.
+    let orderIds = [];
+    try {
+      const rawIds = await redis.zRange(\`post_orders:\${postId}\`, 0, -1) || [];
+      orderIds = rawIds.map(x => typeof x === 'string' ? x : x.member);
+    } catch (e) {
+      console.warn("Redis fetch failed:", e);
+    }
+
+    // 2. Payments API Fallback (Recovery)
+    // If Redis is empty, try the official API just in case we missed a webhook
+    if (orderIds.length === 0) {
+        try {
+            const { orders } = await payments.getOrders({ postId: postId, limit: 100 });
+            orderIds = (orders || [])
+                .filter(o => o.status === 'PAID')
+                .map(o => o.id);
+        } catch(e) { console.warn("Payments API fallback failed:", e); }
+    }
+    
+    if (orderIds.length === 0) {
+        return res.json({ comments: { data: [], meta: { has_next_page: false } } });
+    }
+
+    // 3. Fetch Full Order Details from Redis
+    // We store rich metadata in 'order:{id}' during fulfillment
+    const orderPromises = orderIds.map(id => redis.get(\`order:\${id}\`));
+    const orderStrings = await Promise.all(orderPromises);
+    const orders = orderStrings
+      .filter(s => s !== null)
+      .map(s => JSON.parse(s));
+    
+    // 4. Filter by User (if requested)
+    const filtered = userId 
+      ? orders.filter(o => o.userId === userId)
+      : orders;
+    
+    // 5. Transform to WebSim Comment Format
+    const mapped = await Promise.all(filtered.map(async (o) => {
+      // Try to get associated comment metadata (text, avatar, username)
+      // This key is set in POST /api/comments if available, or inferred
+      const commentMeta = await redis.hGetAll(\`tip_comment:\${o.id}\`) || {};
+      
+      const username = commentMeta.username || 'Supporter';
+      const avatarUrl = commentMeta.avatar || \`/_websim_avatar_/\${o.userId}\`; // Uses client-side injector
+      
+      // Ensure numeric amount
+      const amount = typeof o.amount === 'number' ? o.amount : parseInt(o.amount || '0');
+
+      return {
+        comment: {
+          id: o.id,
+          project_id: 'local',
+          raw_content: commentMeta.text || \`Tipped \${amount} Gold\`,
+          content: { type: 'doc', content: [] },
+          created_at: o.createdAt || new Date().toISOString(),
+          author: {
+            id: o.userId,
+            username: username,
+            avatar_url: avatarUrl
+          },
+          card_data: {
+            type: 'tip_comment',
+            credits_spent: amount
+          }
+        }
+      };
+    }));
+    
+    // Sort by most recent (assuming orderIds came in order, but safety sort)
+    mapped.sort((a, b) => new Date(b.comment.created_at) - new Date(a.comment.created_at));
+
+    res.json({
+      comments: {
+        data: mapped,
+        meta: { has_next_page: false }
+      }
+    });
+  } catch (e) {
+    console.error("GET /api/tips failed:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/api/user-total/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    let total = await redis.get(\`user_total:\${userId}\`);
+    
+    // Self-healing: If 0 or missing, try to recalculate from history
+    if (!total || total === '0') {
+        const recalc = await recalculateUserTotal(userId);
+        total = String(recalc);
+    }
+    
+    res.json({ total: parseInt(total || '0') });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.get('/api/supporters', async (req, res) => {
+  try {
+    const postId = context.postId;
+    
+    // 1. Get all Order IDs for this Post
+    // Using zRange on the sorted set we maintain in /internal/payments/fulfill
+    const rawIds = await redis.zRange(\`post_orders:\${postId}\`, 0, -1) || [];
+    const orderIds = rawIds.map(x => typeof x === 'string' ? x : x.member);
+    
+    // 2. Fetch Order Details
+    const orderPromises = orderIds.map(id => redis.get(\`order:\${id}\`));
+    const orderStrings = await Promise.all(orderPromises);
+    const orders = orderStrings
+      .filter(s => s !== null)
+      .map(s => JSON.parse(s));
+    
+    // 3. Aggregate Tips by User
+    const userMap = new Map();
+    const userInfo = new Map(); // Store latest username/avatar info found in orders
+
+    for (const o of orders) {
+      const current = userMap.get(o.userId) || 0;
+      userMap.set(o.userId, current + o.amount);
+      
+      // Try to capture user info if available in order (optional enhancement)
+      // Otherwise client will lookup via /api/lookup/avatar
+    }
+    
+    // 4. Format for WebSim
+    const supporters = Array.from(userMap.entries())
+      .map(([uid, amt]) => ({
+        userId: uid,
+        totalTips: amt,
+        // Helper fields for client
+        username: 'Supporter', 
+        avatarUrl: \`/_websim_avatar_/\${uid}\`
+      }))\
+      .sort((a, b) => b.totalTips - a.totalTips);
+    
+    res.json({ supporters });
+  } catch (e) {
+    console.error("GET /api/supporters failed:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- Realtime Relay (Client -> Server -> Clients) ---
 // --- Payments Endpoints (Fulfillment) ---
 router.post('/internal/payments/fulfill', async (req, res) => {
-    try {
-        // The payment data is passed in the request body.
-        // It's often the order object itself, but we'll check both patterns for robustness.
-        const order = req.body.order || req.body;
-        
-        if (!order || typeof order !== 'object') {
-            return res.status(400).json({ success: false, reason: "Invalid or missing order data" });
-        }
-
-        console.log(\`[Server] Fulfillment Received: ID=\${order.id} Status=\${order.status}\`);
-
-        if (order.status === 'PAID') {
-            const product = order.products && order.products[0];
-            const sku = product ? product.sku : '';
-            
-            // SKU format: tip_25_gold
-            const match = sku.match(/tip_(\d+)_gold/);
-            const amount = match ? parseInt(match[1]) : 0;
-            
-            // Extract IDs from order if context is not yet hydrated (failsafe)
-            const userId = context.userId || order.userId;
-            const postId = context.postId || order.postId;
-
-            if (amount > 0 && userId && postId) {
-                const tipKey = \`tips:\${postId}:\${userId}\`;
-                await redis.incrBy(tipKey, amount);
-                
-                // Automated Thank You Comment
-                try {
-                    const comment = await reddit.submitComment({
-                        id: postId,
-                        text: \`**Tipped \${amount} Gold!** 🟡\\n\\n*(Automated via Devvit Payments)*\`
-                    });
-                    
-                    const metaKey = \`comment_metadata:\${comment.id}\`;
-                    await redis.hSet(metaKey, {
-                        type: 'tip_comment',
-                        credits_spent: String(amount)
-                    });
-                } catch(err) {
-                    console.warn('Failed to post tip comment:', err);
-                }
-            }
-            return res.json({ success: true });
-        }
-
-        res.json({ success: false, reason: \`Unexpected order status: \${order.status}\` });
-    } catch (e) {
-        console.error('Payment Fulfillment Error:', e);
-        res.status(500).json({ success: false, reason: e.message });
+  try {
+    const order = req.body.order || req.body;
+    
+    if (!order || order.status !== 'PAID') {
+      return res.json({ success: false, reason: 'Order not paid or invalid' });
     }
+    
+    const product = order.products && order.products[0];
+    const sku = product ? product.sku : '';
+    const match = sku.match(/(\\d+)/); 
+    const amount = match ? parseInt(match[1]) : 0;
+    
+    if (amount === 0) {
+      return res.json({ success: false, reason: 'Invalid SKU' });
+    }
+    
+    // 1. Identify User & Post (Context Recovery)
+    let userId = order.userId || order.user?.id || order.author?.id || order.customerId || req.body.userId || context.userId;
+    const orderId = order.id;
+    let postId = order.postId || order.post?.id || context.postId;
+    
+    // Recovery Phase 1: Try to recover userId from pending tips if missing
+    if (!userId && amount > 0) {
+        try {
+            const pattern = \`pending_tip:*:\${amount}\`;
+            const keys = await redis.keys(pattern);
+            if (keys && keys.length > 0) {
+                const recoveredKey = keys[0]; // e.g., pending_tip:t2_xyz:5
+                const parts = recoveredKey.split(':');
+                if (parts.length >= 3) userId = parts[1];
+            }
+        } catch(e) {}
+    }
+
+    if (!userId) {
+      console.error(\`[Fulfill] User ID missing for Order \${orderId}\`);
+      return res.json({ success: false, reason: 'Missing userId' });
+    }
+    
+    // Recovery Phase 2: Check for Pending Tip Metadata EARLY to recover postId
+    // We need the postId *before* we index the order in 'post_orders'
+    let pendingCommentData = null;
+    let pendingKey = \`pending_tip:\${userId}:\${amount}\`;
+    
+    try {
+        const rawPending = await redis.get(pendingKey);
+        if (rawPending) {
+            pendingCommentData = JSON.parse(rawPending);
+            // RECOVER POST ID
+            if (!postId && pendingCommentData.postId) {
+                postId = pendingCommentData.postId;
+                console.log(\`[Fulfill] Recovered postId \${postId} from pending tip\`);
+            }
+        }
+    } catch(e) { console.warn("[Fulfill] Pending read error", e); }
+
+    console.log(\`[Fulfill] Order \${orderId} | User \${userId} | Amount \${amount} | Post \${postId}\`);
+
+    // 2. Idempotency Check & Totals
+    const existingOrder = await redis.get(\`order:\${orderId}\`);
+    if (!existingOrder) {
+        const totalKey = \`user_total:\${userId}\`;
+        const currentTotal = await redis.get(totalKey) || '0';
+        await redis.set(totalKey, String(parseInt(currentTotal) + amount));
+        
+        if (postId) {
+          await redis.incrBy(\`tips:\${postId}:\${userId}\`, amount);
+        }
+    }
+
+    // 3. Save Order Record (with potentially recovered postId)
+    await redis.set(\`order:\${orderId}\`, JSON.stringify({
+      id: orderId,
+      userId: userId,
+      postId: postId,
+      amount: amount,
+      sku: sku,
+      createdAt: order.createdAt || new Date().toISOString(),
+      status: 'PAID'
+    }));
+    
+    // 4. Index Order (History & Post Lists)
+    // NOW safe to index because we've done our best to recover postId
+    await redis.zAdd(\`user_orders:\${userId}\`, { member: orderId, score: Date.now() });
+    
+    if (postId) {
+      await redis.zAdd(\`post_orders:\${postId}\`, { member: orderId, score: Date.now() });
+    }
+    
+    // 5. Link/Cleanup Pending Metadata
+    if (pendingCommentData) {
+      try {
+        console.log(\`[Fulfill] Linking Pending Comment \${pendingCommentData.commentId} to Order \${orderId}\`);
+        
+        const metadata = {
+          text: pendingCommentData.text || '',
+          credits: String(amount),
+          username: pendingCommentData.username || 'Supporter',
+          avatar: pendingCommentData.avatar || '',
+          type: 'tip_comment',
+          credits_spent: String(amount)
+        };
+        
+        // Store keyed by Order ID (for /api/tips)
+        await redis.hSet(\`tip_comment:\${orderId}\`, metadata);
+        
+        // Store keyed by Comment ID (for /api/comments)
+        if (pendingCommentData.commentId) {
+            await redis.hSet(\`tip_comment:\${pendingCommentData.commentId}\`, metadata);
+        }
+        
+        // Cleanup
+        await redis.del(pendingKey);
+      } catch(e) {}
+    }
+    
+    return res.json({ success: true });
+  } catch (e) {
+    console.error('Payment Fulfillment Error:', e);
+    res.status(500).json({ success: false, reason: e.message });
+  }
 });
 
 router.post('/internal/payments/refund', async (req, res) => {
@@ -307,10 +531,10 @@ router.get('/api/comments', async (req, res) => {
 
         // Transform to WebSim format
         let data = await Promise.all(comments.map(async (c) => {
-            // Check for tip metadata
-            const metaKey = \`comment_metadata:\${c.id}\`;
+            // Check for tip metadata (Standardized on tip_comment: prefix)
+            const metaKey = \`tip_comment:\${c.id}\`;
             const meta = await redis.hGetAll(metaKey);
-            const isTip = meta && meta.type === 'tip_comment';
+            const isTip = meta && (meta.type === 'tip_comment' || parseInt(meta.credits || '0') > 0);
             
             // Filter early if we only want tips
             if (onlyTips && !isTip) return null;
@@ -331,8 +555,7 @@ router.get('/api/comments', async (req, res) => {
                     parent_comment_id: c.parentId.startsWith('t1_') ? c.parentId : null,
                     card_data: isTip ? {
                         type: 'tip_comment',
-                        credits_spent: parseInt(meta.credits_spent || '0')
-                    } : null
+                        credits_spent: parseInt(meta.credits_spent || meta.credits || '0')\n                    } : null
                 }
             };
         }));
@@ -355,39 +578,68 @@ router.get('/api/comments', async (req, res) => {
 });
 
 router.post('/api/comments', async (req, res) => {
-    try {
-        const { content, parentId } = req.body;
-        const postId = context.postId;
-        
-        if (!postId) return res.status(400).json({ error: 'No Post Context' });
-        
-        const text = typeof content === 'string' ? content : '';
-        if (!text.trim()) {
-            return res.status(400).json({ error: 'Comment content cannot be empty' });
-        }
+  try {
+    const { content, parentId, credits } = req.body;
+    const postId = context.postId;
+    
+    const text = content || '';
+    const targetId = parentId || postId;
+    
+    if (!targetId) return res.status(400).json({ error: 'No target ID (Post Context missing)' });
 
-        // Use User Actions to post as the authenticated user
-        // We use 'id' which covers both top-level posts and comments
-        const targetId = parentId || postId;
-
-        console.log(\`[Server] submitComment: id=\${targetId} text_len=\${text.length}\`);
-
-        // [Fixed] Post as user using runAs: 'USER'
-        // Requires "permissions": { "reddit": { "asUser": ["SUBMIT_COMMENT"] } } in devvit.json
-        const result = await reddit.submitComment({
-            id: targetId,
-            text: text,
-            runAs: 'USER'
-        });
-
-        res.json({ success: true, id: result.id });
-    } catch (e) {
-        console.error('Post Comment Error:', e);
-        res.status(500).json({ error: e.message });
+    // Submit comment to Reddit
+    const result = await reddit.submitComment({
+      id: targetId,
+      text: text || ' ', // Reddit requires non-empty body
+      runAs: 'USER'
+    });
+    
+    // If this comment is a TIP, create a "Pending Link" for the fulfillment handler to find
+    if (credits && parseInt(credits) > 0) {
+      const user = await reddit.getCurrentUser();
+      const userId = user?.id || context.userId;
+      const amount = parseInt(credits);
+      
+      // Key: pending_tip:{userId}:{amount}
+      // This bridges the gap between the Comment (ID known now) and the Order (ID known later via webhook)
+      const pendingKey = \`pending_tip:\${userId}:\${amount}\`;
+      
+      await redis.set(pendingKey, JSON.stringify({
+        commentId: result.id,
+        postId: postId,
+        text: text,
+        username: user?.username || 'User',
+        avatar: user?.profileImage || '',
+        timestamp: Date.now()
+      }), { 
+        ex: 300 // Expire after 5 minutes
+      });
+      
+      console.log(\`[Comment] Pending Tip Link: \${pendingKey} (User: \${userId}, Amount: \${amount}) -> Comment: \${result.id}\`);
+      
+      // Also store by comment ID immediately, just in case
+      await redis.hSet(\`tip_comment:\${result.id}\`, {
+        text: text,
+        credits: String(credits),
+        username: user?.username || 'User',
+        avatar: user?.profileImage || '' 
+      });
     }
+    
+    res.json({ success: true, id: result.id });
+  } catch (e) {
+    console.error('Post Comment Error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- Avatar Lookup Route (Client Injection) ---
+// --- Avatar Fallback (Prevents 404s) ---
+router.get('/_websim_avatar_/:username', async (req, res) => {
+    // Redirect to proxy which handles the lookup
+    res.redirect('/api/proxy/avatar/' + req.params.username);
+});
+
 router.get('/api/lookup/avatar/:username', async (req, res) => {
     const { username } = req.params;
     const defaultAvatar = 'https://www.redditstatic.com/avatars/avatar_default_02_FF4500.png';
