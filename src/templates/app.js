@@ -649,7 +649,14 @@ router.get('/api/lookup/avatar/:username', async (req, res) => {
     }
 
     try {
-        const user = await reddit.getUserByUsername(username);
+        let user;
+        // Handle Reddit User IDs (t2_...) used in /api/tips and /api/supporters
+        if (username.startsWith('t2_')) {
+            user = await reddit.getUserById(username);
+        } else {
+            user = await reddit.getUserByUsername(username);
+        }
+
         let url = null;
         if (user) {
             url = await user.getSnoovatarUrl();
@@ -692,8 +699,14 @@ router.get('/api/v1/search/assets/relevant', async (req, res) => {
 router.get('/api/proxy/avatar/:username', async (req, res) => {
     const { username } = req.params;
     try {
-        // Attempt to get the latest Snoovatar from Reddit
-        const user = await reddit.getUserByUsername(username);
+        let user;
+        // Handle Reddit User IDs (t2_...)
+        if (username.startsWith('t2_')) {
+            user = await reddit.getUserById(username);
+        } else {
+            user = await reddit.getUserByUsername(username);
+        }
+
         let url = null;
         if (user) {
             url = await user.getSnoovatarUrl();
