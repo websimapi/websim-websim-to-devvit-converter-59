@@ -34,54 +34,62 @@ export const generatePackageJson = (slug, dependencies = {}, devDependencies = {
   }
 }, null, 2);
 
-export const generateDevvitJson = (slug, entrypoints) => JSON.stringify({
-  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
-  "name": slug,
-  "post": {
-    "dir": "dist/client",
-    "entrypoints": entrypoints || {
-      "default": {
-        "entry": "index.html",
-        "height": "tall",
-        "inline": true
+export const generateDevvitJson = (slug, entrypoints, enablePayments = true) => {
+  const config = {
+    "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+    "name": slug,
+    "post": {
+      "dir": "dist/client",
+      "entrypoints": entrypoints || {
+        "default": {
+          "entry": "index.html",
+          "height": "tall",
+          "inline": true
+        }
       }
-    }
-  },
-  "payments": {
-    "productsFile": "products.json",
-    "endpoints": {
-      "fulfillOrder": "/internal/payments/fulfill",
-      "refundOrder": "/internal/payments/refund"
-    }
-  },
-  "media": {
-    "dir": "assets"
-  },
-  "server": {
-    "entry": "index.cjs"
-  },
-  "permissions": {
-    "redis": true,
-    "realtime": true,
-    "reddit": {
-      "enable": true,
-      "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
-    }
-  },
-  "triggers": {
-    "onAppInstall": "/internal/onInstall"
-  },
-  "menu": {
-    "items": [
-      {
-        "label": "Add Game Post",
-        "location": "subreddit",
-        "forUserType": "moderator",
-        "endpoint": "/internal/createPost"
+    },
+
+    "server": {
+      "entry": "index.cjs"
+    },
+    "permissions": {
+      "redis": true,
+      "realtime": true,
+      "reddit": {
+        "enable": true,
+        "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
       }
-    ]
+    },
+    "triggers": {
+      "onAppInstall": "/internal/onInstall"
+    },
+    "menu": {
+      "items": [
+        {
+          "label": "Add Game Post",
+          "location": "subreddit",
+          "forUserType": "moderator",
+          "endpoint": "/internal/createPost"
+        }
+      ]
+    }
+  };
+
+  if (enablePayments) {
+    config.media = {
+      "dir": "assets"
+    };
+    config.payments = {
+      "productsFile": "products.json",
+      "endpoints": {
+        "fulfillOrder": "/internal/payments/fulfill",
+        "refundOrder": "/internal/payments/refund"
+      }
+    };
   }
-}, null, 2);
+
+  return JSON.stringify(config, null, 2);
+};
 
 export const generateClientViteConfig = ({ hasReact = false, hasRemotion = false, inputs = {} } = {}) => `
 import { defineConfig } from 'vite';
